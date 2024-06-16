@@ -1,0 +1,48 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_auc_score
+from sklearn.impute import SimpleImputer
+
+train_data = pd.read_csv('training_set_features.csv')
+labels = pd.read_csv('training_set_labels.csv')
+data = train_data.merge(labels, on='respondent_id')
+X = data.drop(['respondent_id', 'xyz_vaccine', 'seasonal_vaccine'], axis=1)
+y_xyz = data['xyz_vaccine']
+y_seasonal = data['seasonal_vaccine']
+X = pd.get_dummies(X, drop_first=True)
+test_data = pd.read_csv('test_set_features.csv')
+test_data = pd.get_dummies(test_data, drop_first=True)
+X, test_data = X.align(test_data, join='left', axis=1, fill_value=0)
+imputer = SimpleImputer(strategy='mean')
+X = imputer.fit_transform(X)
+test_data = imputer.transform(test_data)
+X_train, X_val, y_xyz_train, y_xyz_val = train_test_split(X, y_xyz, test_size=0.2, random_state=42)
+_, _, y_seasonal_train, y_seasonal_val = train_test_split(X, y_seasonal, test_size=0.2, random_state=42)
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_val = scaler.transform(X_val)
+test_data = scaler.transform(test_data)
+
+model_xyz = RandomForestClassifier(n_estimators=100, random_state=42)
+model_xyz.fit(X_train, y_xyz_train)
+model_seasonal = RandomForestClassifier(n_estimators=100, random_state=42)
+model_seasonal.fit(X_train, y_seasonal_train)
+
+y_xyz_pred = model_xyz.predict_proba(X_val)[:, 1]
+y_seasonal_pred = model_seasonal.predict_proba(X_val)[:, 1]
+roc_auc_xyz = roc_auc_score(y_xyz_val, y_xyz_pred)
+roc_auc_seasonal = roc_auc_score(y_seasonal_val, y_seasonal_pred)
+mean_roc_auc = (roc_auc_xyz + roc_auc_seasonal) / 2
+print(f'Mean ROC AUC Score: {mean_roc_auc:.4f}')
+
+test_xyz_pred = model_xyz.predict_proba(test_data)[:, 1]
+test_seasonal_pred = model_seasonal.predict_proba(test_data)[:, 1]
+submission = pd.DataFrame({
+    'respondent_id': range(len(test_data)),
+    'xyz_vaccine': test_xyz_pred,
+    'seasonal_vaccine': test_seasonal_pred
+})
+submission.to_csv('submission.csv', index=False)
